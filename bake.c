@@ -6,6 +6,7 @@
 
 struct target
 {
+	struct target *next;
 	char *name;
 	// TODO: laziness
 	char *cmds[TARGET_MAX_CMDS];
@@ -64,12 +65,47 @@ static void target_run(struct target *target)
 	}
 }
 
+static void parse_makefile(struct target **first_target, FILE *fp)
+{
+	struct target *curtarget = *first_target;
+	char *line = NULL;
+	size_t nline = 0;
+
+	while (getline(&line, &nline, fp) > 0)
+	{
+		switch (line[0])
+		{
+		case '\t':
+			add_target_command(curtarget, line);
+			break;
+		case '#':
+		case '\n':
+			break;
+		default:
+			if (curtarget == NULL)
+			{
+				curtarget = malloc(sizeof(struct target));
+				parse_target_line(curtarget, line);
+				*first_target = curtarget;
+			}
+			else
+			{
+				curtarget->next = malloc(sizeof(struct target));
+				parse_target_line(curtarget->next, line);
+				curtarget = curtarget->next;
+			}
+
+			break;
+		}
+	}
+
+}
+
 int main(int argc, char *argv[])
 {
 	FILE *fp;
-	char *line = NULL;
-	size_t nline = 0;
-	struct target target = { 0 };
+
+	struct target *first_target = NULL;
 
 	fp = fopen("Makefile", "r");
 	if (!fp)
@@ -78,21 +114,20 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	while (getline(&line, &nline, fp) > 0)
-	{
-		if (line[0] == '\t')
-		{
-			add_target_command(&target, line);
-		}
-		else
-		{
-			parse_target_line(&target, line);
-		}
-	}
+	parse_makefile(&first_target, fp);
 
 	fclose(fp);
 
-	target_run(&target);
+	printf("LIST OF TARGETS:\n");
+	for (struct target *cur = first_target; cur != NULL; cur = cur->next)
+	{
+		printf("%s\n", cur->name);
+	}
+
+	if (first_target != NULL)
+	{
+		target_run(first_target);
+	}
 
 	return EXIT_SUCCESS;
 }

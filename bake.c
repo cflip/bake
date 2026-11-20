@@ -1,6 +1,9 @@
+#include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define TARGET_MAX_CMDS 8
 
@@ -98,19 +101,34 @@ static void parse_makefile(struct target **first_target, FILE *fp)
 			break;
 		}
 	}
-
 }
 
 int main(int argc, char *argv[])
 {
 	FILE *fp;
-
 	struct target *first_target = NULL;
 
-	fp = fopen("Makefile", "r");
+	const char *filename = "Makefile";
+	bool print_targets = false;
+
+	int optchar;
+	while ((optchar = getopt(argc, argv, "Tf:")) != -1)
+	{
+		switch (optchar)
+		{
+		case 'T':
+			print_targets = true;
+			break;
+		case 'f':
+			filename = optarg;
+			break;
+		}
+	}
+
+	fp = fopen(filename, "r");
 	if (!fp)
 	{
-		perror("bake: Makefile: ");
+		fprintf(stderr, "%s: %s: %s\n", argv[0], filename, strerror(errno));
 		return EXIT_FAILURE;
 	}
 
@@ -118,15 +136,48 @@ int main(int argc, char *argv[])
 
 	fclose(fp);
 
-	printf("LIST OF TARGETS:\n");
-	for (struct target *cur = first_target; cur != NULL; cur = cur->next)
+	if (print_targets)
 	{
-		printf("%s\n", cur->name);
+		printf("Targets provided by %s:\n", filename);
+		for (struct target *cur = first_target; cur != NULL; cur = cur->next)
+		{
+			printf("\t%s\n", cur->name);
+		}
 	}
 
-	if (first_target != NULL)
+	// If there are no remaining args after parsing options...
+	if (argc == optind && !print_targets)
 	{
-		target_run(first_target);
+		// Run the first target by default if no target is specified on
+		// the command line.
+
+		// This behaviour is also disabled if the 'print targets'
+		// option was passed, since it's likely that the user only
+		// wanted to see the targets and didn't want a build to occur.
+
+		if (first_target != NULL)
+		{
+			target_run(first_target);
+		}
+		return EXIT_SUCCESS;
+	}
+
+	for (char **arg = argv + optind; *arg != NULL; arg++)
+	{
+		struct target *found = first_target;
+
+		while (found != NULL && strcmp(found->name, *arg) != 0)
+		{
+			found = found->next;
+		}
+
+		if (found == NULL)
+		{
+			fprintf(stderr, "%s: unknown target '%s'\n", argv[0], *arg);
+			return EXIT_FAILURE;
+		}
+
+		target_run(found);
 	}
 
 	return EXIT_SUCCESS;

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <sys/stat.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,30 +13,26 @@ struct target
 	struct target *next;
 	char *name;
 	// TODO: laziness
+	char *reqs[TARGET_MAX_CMDS];
 	char *cmds[TARGET_MAX_CMDS];
 };
 
-static void parse_target_line(struct target *target, const char *line)
+static void parse_target_line(struct target *target, char *line)
 {
-	char accum[80];
-	int naccum = 0;
-	const char *head = line;
+	int n = 0;
+	char *tok = strtok(line, ":");
 
-	/* search for colon */
-	while (*head != ':')
+	target->name = strdup(tok);
+
+	while ((tok = strtok(NULL, " \n")) != NULL)
 	{
-		if (*head == '\0')
+		if (n == 8)
 		{
-			fprintf(stderr, "bake: missing colon in target: %s\n", line);
+			fprintf(stderr, "I SUCK!\n");
 			return;
 		}
-
-		accum[naccum++] = *head;
-		head++;
+		target->reqs[n++] = strdup(tok);
 	}
-	accum[naccum] = '\0';
-
-	target->name = strdup(accum);
 }
 
 static void add_target_command(struct target *target, const char *line)
@@ -57,9 +54,53 @@ static void add_target_command(struct target *target, const char *line)
 	*cmd = strndup(line + 1, strlen(line) - 2);
 }
 
-static void target_run(struct target *target)
+static struct target *find_target(struct target *first, const char *name)
+{
+	struct target *found = first;
+	while (found != NULL && strcmp(found->name, name) != 0)
+	{
+		found = found->next;
+	}
+	return found;
+}
+
+static void target_run(struct target *first_target, struct target *target)
 {
 	printf("] BAKING '%s'\n", target->name);
+	for (int i = 0; target->reqs[i] != NULL; i++)
+	{
+		struct stat statbuf;
+		int statcode;
+
+		printf("\thas dep: %s\n", target->reqs[i]);
+
+		statcode = stat(target->reqs[i], &statbuf);
+		if (statcode == 0)
+		{
+			// Dependency exists, check next one
+			continue;
+		}
+
+		if (errno == ENOENT)
+		{
+			// Dependency does not exist, needs to be rebuild
+			struct target *dep = find_target(first_target, target->reqs[i]);
+			if (dep == NULL)
+			{
+				fprintf(stderr, "unable to make '%s': no target for '%s'\n",
+						target->name, target->reqs[i]);
+				exit(EXIT_FAILURE);
+			}
+			target_run(first_target, dep);
+		}
+		else
+		{
+			// Bad dependency file, print error and quit
+			fprintf(stderr, "error with '%s' while building '%s': %s\n",
+					target->reqs[i], target->name, strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+	}
 
 	for (char **cmd = target->cmds; *cmd != NULL; cmd++)
 	{
@@ -157,19 +198,14 @@ int main(int argc, char *argv[])
 
 		if (first_target != NULL)
 		{
-			target_run(first_target);
+			target_run(first_target, first_target);
 		}
 		return EXIT_SUCCESS;
 	}
 
 	for (char **arg = argv + optind; *arg != NULL; arg++)
 	{
-		struct target *found = first_target;
-
-		while (found != NULL && strcmp(found->name, *arg) != 0)
-		{
-			found = found->next;
-		}
+		struct target *found = find_target(first_target, *arg);
 
 		if (found == NULL)
 		{
@@ -177,7 +213,7 @@ int main(int argc, char *argv[])
 			return EXIT_FAILURE;
 		}
 
-		target_run(found);
+		target_run(first_target, found);
 	}
 
 	return EXIT_SUCCESS;

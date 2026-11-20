@@ -2,8 +2,8 @@
 # it has many targets.
 #
 
-bake:
-	cc -o bake -g bake.c
+bake: bake.c
+	cc -o bake -Wall -Wextra -pedantic -g bake.c
 
 hello:
 	echo "hello, world"

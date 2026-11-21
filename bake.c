@@ -108,25 +108,14 @@ static void target_run(struct target *first_target, struct target *target)
 			continue;
 		}
 
-		if (errno == ENOENT)
+		struct target *dep = find_target(first_target, target->reqs[i]);
+		if (dep == NULL)
 		{
-			// Dependency does not exist, needs to be rebuild
-			struct target *dep = find_target(first_target, target->reqs[i]);
-			if (dep == NULL)
-			{
-				fprintf(stderr, "unable to make '%s': no target for '%s'\n",
-						target->name, target->reqs[i]);
-				exit(EXIT_FAILURE);
-			}
-			target_run(first_target, dep);
-		}
-		else
-		{
-			// Bad dependency file, print error and quit
-			fprintf(stderr, "error with '%s' while building '%s': %s\n",
-					target->reqs[i], target->name, strerror(errno));
+			fprintf(stderr, "unable to make '%s': no target for '%s'\n",
+					target->name, target->reqs[i]);
 			exit(EXIT_FAILURE);
 		}
+		target_run(first_target, dep);
 	}
 
 	for (char **cmd = target->cmds; *cmd != NULL; cmd++)

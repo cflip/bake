@@ -64,18 +64,45 @@ static struct target *find_target(struct target *first, const char *name)
 	return found;
 }
 
+static bool file_get_last_mod(const char *filename, time_t *lastmod)
+{
+	struct stat statbuf;
+	int statcode;
+
+	statcode = stat(filename, &statbuf);
+	if (statcode == -1)
+	{
+		if (errno != ENOENT)
+		{
+			perror(filename);
+		}
+		return false;
+	}
+
+	*lastmod = statbuf.st_mtim.tv_sec;
+	return true;
+}
+
 static void target_run(struct target *first_target, struct target *target)
 {
+	time_t target_lastmod;
+
 	printf("] BAKING '%s'\n", target->name);
+
+	if (file_get_last_mod(target->name, &target_lastmod))
+	{
+		// TODO: Check dependency timestamps to see if this file is out of date.
+		printf(" already built\n");
+		return;
+	}
+
 	for (int i = 0; target->reqs[i] != NULL; i++)
 	{
-		struct stat statbuf;
-		int statcode;
+		time_t req_lastmod;
 
 		printf("\thas dep: %s\n", target->reqs[i]);
 
-		statcode = stat(target->reqs[i], &statbuf);
-		if (statcode == 0)
+		if (file_get_last_mod(target->reqs[i], &req_lastmod))
 		{
 			// Dependency exists, check next one
 			continue;

@@ -83,13 +83,13 @@ static bool file_get_last_mod(const char *filename, time_t *lastmod)
 	return true;
 }
 
-static void target_run(struct target *first_target, struct target *target)
+static void target_run(struct target *first_target, struct target *target, bool always_build)
 {
 	time_t target_lastmod;
 
 	printf("] BAKING '%s'\n", target->name);
 
-	if (file_get_last_mod(target->name, &target_lastmod))
+	if (!always_build && file_get_last_mod(target->name, &target_lastmod))
 	{
 		// TODO: Check dependency timestamps to see if this file is out of date.
 		printf(" already built\n");
@@ -100,22 +100,23 @@ static void target_run(struct target *first_target, struct target *target)
 	{
 		time_t req_lastmod;
 
+		struct target *dep = find_target(first_target, target->reqs[i]);
+		bool is_target = dep != NULL;
+		bool file_exists = file_get_last_mod(target->reqs[i], &req_lastmod);
+
 		printf("\thas dep: %s\n", target->reqs[i]);
 
-		if (file_get_last_mod(target->reqs[i], &req_lastmod))
-		{
-			// Dependency exists, check next one
-			continue;
-		}
-
-		struct target *dep = find_target(first_target, target->reqs[i]);
-		if (dep == NULL)
+		if (!is_target && !file_exists)
 		{
 			fprintf(stderr, "unable to make '%s': no target for '%s'\n",
 					target->name, target->reqs[i]);
 			exit(EXIT_FAILURE);
 		}
-		target_run(first_target, dep);
+
+		if (!file_exists || (is_target && always_build))
+		{
+			target_run(first_target, dep, always_build);
+		}
 	}
 
 	for (char **cmd = target->cmds; *cmd != NULL; cmd++)
@@ -167,12 +168,16 @@ int main(int argc, char *argv[])
 
 	const char *filename = "Makefile";
 	bool print_targets = false;
+	bool always_build = false;
 
 	int optchar;
-	while ((optchar = getopt(argc, argv, "Tf:")) != -1)
+	while ((optchar = getopt(argc, argv, "BTf:")) != -1)
 	{
 		switch (optchar)
 		{
+		case 'B':
+			always_build = true;
+			break;
 		case 'T':
 			print_targets = true;
 			break;
@@ -214,7 +219,7 @@ int main(int argc, char *argv[])
 
 		if (first_target != NULL)
 		{
-			target_run(first_target, first_target);
+			target_run(first_target, first_target, always_build);
 		}
 		return EXIT_SUCCESS;
 	}
@@ -229,7 +234,7 @@ int main(int argc, char *argv[])
 			return EXIT_FAILURE;
 		}
 
-		target_run(first_target, found);
+		target_run(first_target, found, always_build);
 	}
 
 	return EXIT_SUCCESS;
